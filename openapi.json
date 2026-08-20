@@ -1,0 +1,480 @@
+{
+	"openapi": "3.1.0",
+	"info": {
+		"title": "auregistre timeline API",
+		"version": "1.0.0",
+		"summary": "What changed in a French company, and when.",
+		"description": "Most company-data services publish a **state**: the name, address and share capital as of today.\nThis API publishes the **history**: every value the French official gazette (BODACC) has recorded for a company,\nwith the date it was published and a link to the announcement that published it.\n\nNothing is inferred, scored or estimated. Every value returned was published by the register on the date shown.\n\nThe gazette has been digitised since 2008. For a company older than that, the earliest value returned\nis the oldest one on record, not the company's original value.\n\nNo API key and no account are involved. Requests are rate limited by IP.",
+		"termsOfService": "https://auregistre.fr/cgu",
+		"contact": {
+			"name": "auregistre",
+			"url": "https://auregistre.fr/api",
+			"email": "contact@auregistre.fr"
+		},
+		"license": {
+			"name": "Licence Ouverte 2.0 (Etalab)",
+			"url": "https://www.etalab.gouv.fr/licence-ouverte-open-licence/"
+		}
+	},
+	"servers": [
+		{
+			"url": "https://auregistre.fr/api",
+			"description": "Production"
+		}
+	],
+	"security": [],
+	"externalDocs": {
+		"description": "Human-readable documentation",
+		"url": "https://auregistre.fr/api"
+	},
+	"tags": [
+		{
+			"name": "company",
+			"description": "Read-only access by SIREN. There is deliberately no search endpoint: see the documentation for why."
+		}
+	],
+	"paths": {
+		"/company/{siren}/timeline": {
+			"get": {
+				"tags": [
+					"company"
+				],
+				"operationId": "getCompanyTimeline",
+				"summary": "Every recorded change for one company",
+				"description": "Returns one entry per field that has **changed at least once**. A field that has never moved is not a timeline,\nit is a state, and it is omitted.\n\nAnnouncements that merely cite the SIREN without describing the company are excluded.\nOn large franchised networks this is around 40% of what a naive SIREN search returns.\n\nResponses are cached at the edge for 24 hours. A cached response does not count against the rate limit.",
+				"parameters": [
+					{
+						"name": "siren",
+						"in": "path",
+						"required": true,
+						"description": "The nine-digit identifier of a French legal entity. Spaces, dots and dashes are accepted and ignored.",
+						"schema": {
+							"type": "string",
+							"pattern": "^[0-9 .-]{9,13}$"
+						},
+						"examples": {
+							"doctolib": {
+								"value": "794598813",
+								"summary": "Doctolib"
+							},
+							"edf": {
+								"value": "552081317",
+								"summary": "EDF"
+							}
+						}
+					},
+					{
+						"name": "If-None-Match",
+						"in": "header",
+						"required": false,
+						"description": "Send the previous `ETag` to get a 304 when nothing has changed.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "The company timeline.",
+						"headers": {
+							"ETag": {
+								"description": "Weak validator of this representation.",
+								"schema": {
+									"type": "string"
+								}
+							},
+							"Cache-Control": {
+								"description": "Shared caches may keep this for 24 hours.",
+								"schema": {
+									"type": "string"
+								}
+							},
+							"Link": {
+								"description": "RFC 8631 discovery links: `service-desc` points at this document, `service-doc` at the human documentation, `license` at the data licence.",
+								"schema": {
+									"type": "string"
+								}
+							}
+						},
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Timeline"
+								}
+							}
+						}
+					},
+					"304": {
+						"description": "Your `If-None-Match` matched. No body."
+					},
+					"400": {
+						"description": "The SIREN is not nine digits.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#invalid-siren",
+									"title": "Invalid SIREN",
+									"status": 400,
+									"detail": "A SIREN is the nine-digit identifier the French business register assigns to a legal entity."
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "No announcement describes this SIREN.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#company-not-found",
+									"title": "No timeline available",
+									"status": 404,
+									"detail": "No gazette announcement describes SIREN 123456789."
+								}
+							}
+						}
+					},
+					"405": {
+						"description": "This endpoint is read-only.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#method-not-allowed",
+									"title": "Method not allowed",
+									"status": 405,
+									"detail": "This endpoint is read-only. POST is not supported; use GET."
+								}
+							}
+						}
+					},
+					"429": {
+						"description": "Rate limit exceeded.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#rate-limit-exceeded",
+									"title": "Too many requests",
+									"status": 429,
+									"detail": "This endpoint allows 30 requests per minute per IP address."
+								}
+							}
+						},
+						"headers": {
+							"Retry-After": {
+								"description": "Seconds to wait.",
+								"schema": {
+									"type": "integer"
+								}
+							},
+							"RateLimit-Limit": {
+								"schema": {
+									"type": "integer"
+								}
+							},
+							"RateLimit-Remaining": {
+								"schema": {
+									"type": "integer"
+								}
+							},
+							"RateLimit-Reset": {
+								"description": "Seconds until the window resets.",
+								"schema": {
+									"type": "integer"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "The gazette did not answer. This says nothing about whether the company exists.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#upstream-unavailable",
+									"title": "Upstream register unavailable",
+									"status": 503,
+									"detail": "The French official gazette did not answer in time."
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	"components": {
+		"schemas": {
+			"Problem": {
+				"type": "object",
+				"description": "Error format, following RFC 9457 (Problem Details for HTTP APIs).",
+				"required": [
+					"type",
+					"title",
+					"status",
+					"detail"
+				],
+				"properties": {
+					"type": {
+						"type": "string",
+						"format": "uri",
+						"description": "Stable URI identifying the problem kind."
+					},
+					"title": {
+						"type": "string"
+					},
+					"status": {
+						"type": "integer"
+					},
+					"detail": {
+						"type": "string"
+					},
+					"instance": {
+						"type": "string",
+						"description": "The path that was requested."
+					}
+				}
+			},
+			"Step": {
+				"type": "object",
+				"required": [
+					"date",
+					"value"
+				],
+				"properties": {
+					"date": {
+						"type": "string",
+						"format": "date",
+						"description": "Publication date of the announcement that carried this value.",
+						"examples": [
+							"2020-02-11"
+						]
+					},
+					"value": {
+						"type": "string",
+						"description": "The value exactly as the register published it, in French. Names and addresses are not translated: translating them would invent a fact nobody recorded.",
+						"examples": [
+							"157 630,69 EUR"
+						]
+					},
+					"amount": {
+						"type": "object",
+						"description": "The same value as a number, present only on monetary fields. Provided so that consumers never have to parse the French formatting of `value`.",
+						"required": [
+							"value",
+							"currency"
+						],
+						"properties": {
+							"value": {
+								"type": "number",
+								"examples": [
+									157630.69
+								]
+							},
+							"currency": {
+								"type": "string",
+								"description": "ISO 4217 code.",
+								"examples": [
+									"EUR"
+								]
+							}
+						}
+					},
+					"source": {
+						"type": "string",
+						"format": "uri",
+						"description": "The gazette announcement that published this value. Every step is verifiable.",
+						"examples": [
+							"https://www.bodacc.fr/annonce/detail-annonce/A/20200028/1234"
+						]
+					}
+				}
+			},
+			"Timeline": {
+				"type": "object",
+				"required": [
+					"siren",
+					"legal_name",
+					"timeline",
+					"coverage",
+					"attribution",
+					"served_by",
+					"terms",
+					"documentation",
+					"notice"
+				],
+				"properties": {
+					"siren": {
+						"type": "string",
+						"examples": [
+							"794598813"
+						]
+					},
+					"legal_name": {
+						"type": [
+							"string",
+							"null"
+						],
+						"description": "The name as the gazette last published it. Null when no announcement names the company."
+					},
+					"timeline": {
+						"type": "array",
+						"description": "One entry per field that has changed at least once.",
+						"items": {
+							"type": "object",
+							"required": [
+								"field",
+								"label",
+								"changes",
+								"first_known",
+								"current",
+								"history"
+							],
+							"properties": {
+								"field": {
+									"type": "string",
+									"enum": [
+										"share_capital",
+										"legal_name",
+										"legal_form",
+										"registered_office",
+										"stated_activity"
+									]
+								},
+								"label": {
+									"type": "string",
+									"description": "Human-readable field name, in English."
+								},
+								"changes": {
+									"type": "integer",
+									"description": "How many times the value changed. `history` holds one more entry than this: the first is a starting point, not a change."
+								},
+								"first_known": {
+									"$ref": "#/components/schemas/Step"
+								},
+								"current": {
+									"$ref": "#/components/schemas/Step"
+								},
+								"history": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/Step"
+									}
+								}
+							}
+						}
+					},
+					"coverage": {
+						"type": "object",
+						"required": [
+							"announcements_read",
+							"complete",
+							"earliest_possible_year"
+						],
+						"properties": {
+							"announcements_read": {
+								"type": "integer",
+								"description": "How many announcements actually describe this company."
+							},
+							"complete": {
+								"type": "boolean",
+								"description": "False when the gazette stopped answering mid-read. The timeline is then a beginning, and the response is not cached."
+							},
+							"earliest_possible_year": {
+								"type": "integer",
+								"examples": [
+									2008
+								]
+							}
+						}
+					},
+					"attribution": {
+						"type": "array",
+						"description": "Source and retrieval date. Reusing this data requires citing both; they travel in the payload so that they reach consumers who never see the website.",
+						"items": {
+							"type": "object",
+							"required": [
+								"name",
+								"url",
+								"licence",
+								"retrieved"
+							],
+							"properties": {
+								"name": {
+									"type": "string"
+								},
+								"url": {
+									"type": "string",
+									"format": "uri"
+								},
+								"licence": {
+									"type": "string"
+								},
+								"retrieved": {
+									"type": "string",
+									"format": "date-time"
+								}
+							}
+						}
+					},
+					"served_by": {
+						"type": "object",
+						"description": "Which service produced this response. `attribution` says where the data comes from; this says who served it. A record copied into another database can then be traced back, if only to know where to report a wrong line.",
+						"required": [
+							"name",
+							"url"
+						],
+						"properties": {
+							"name": {
+								"type": "string",
+								"examples": [
+									"auregistre"
+								]
+							},
+							"url": {
+								"type": "string",
+								"format": "uri",
+								"examples": [
+									"https://auregistre.fr/api"
+								]
+							}
+						}
+					},
+					"terms": {
+						"type": "string",
+						"format": "uri",
+						"description": "The terms of use, absolute, as every answer of the fleet carries them."
+					},
+					"documentation": {
+						"type": "string",
+						"format": "uri",
+						"description": "The human documentation, absolute."
+					},
+					"notice": {
+						"type": "string",
+						"description": "What the data does and does not say."
+					}
+				}
+			}
+		}
+	},
+	"x-rate-limit": {
+		"requests": 30,
+		"window_seconds": 60,
+		"scope": "ip",
+		"note": "Edge-cached responses are served without reaching the limiter and do not consume quota. RateLimit-* headers travel on the 429 alone: stored on a cached answer they would tell every caller the quota of the first one."
+	},
+	"x-stability": "No version in the address and none in the body, because nothing will break: fields are added, never removed or renamed under a caller, and addresses do not move. The launch-day /api/v1/ addresses answer 308 to the same paths without the segment."
+}

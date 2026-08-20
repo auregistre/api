@@ -1,0 +1,56 @@
+# Publish to npm.
+#
+# Manual, deliberately: a release goes out when somebody decides it does, and a
+# tag is often pushed just to see what happens. It publishes a TAG and never a
+# branch, so the commit that goes out is the one the notes describe.
+#
+# Authenticated by OIDC (npm trusted publishing), not by a secret: npmjs.com
+# names this repository and this workflow FILE as allowed to publish
+# `auregistre`. Renaming this file revokes that permission until the trusted
+# publisher is updated, and a fork cannot publish, because the claim carries the
+# repository it came from.
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to publish, with the v prefix (e.g. v0.0.1).
+        required: true
+
+permissions:
+  contents: read
+  id-token: write # the claim that authenticates this run to the registry
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+
+      # No `registry-url`. It looks like the setting that points npm at the
+      # registry; what it does is WRITE an .npmrc carrying an auth line, and npm
+      # only reaches for OIDC when it finds no credential configured.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Trusted publishing needs npm 11.5.1 or newer, and Node 22 ships an older
+      # one. Raising the CLI rather than the runtime keeps `engines` honest.
+      - run: npm install -g --ignore-scripts npm@11.19.0
+      - run: npm --version
+
+      - run: node --test test/*.test.js
+
+      - name: publish
+        env:
+          # A publish that fails says WHY. Without this, npm decides in silence
+          # whether to ask the registry to authenticate this workflow, and a
+          # refusal arrives as a bare "need auth" that reads like a missing
+          # token.
+          NPM_CONFIG_LOGLEVEL: verbose
+        run: npm publish --provenance --access public

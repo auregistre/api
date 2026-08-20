@@ -1,0 +1,48 @@
+{
+	"name": "auregistre",
+	"version": "0.0.1",
+	"description": "What changed in a French company, and when. Official zero-dependency client for the auregistre API.",
+	"keywords": [
+		"siren",
+		"bodacc",
+		"france",
+		"company",
+		"registry",
+		"open-data",
+		"timeline",
+		"entreprise"
+	],
+	"homepage": "https://github.com/auregistre/api#readme",
+	"bugs": {
+		"url": "https://github.com/auregistre/api/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/auregistre/api.git"
+	},
+	"license": "MIT",
+	"author": "Florian Mousseau",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./index.d.ts",
+			"default": "./index.js"
+		}
+	},
+	"main": "./index.js",
+	"types": "./index.d.ts",
+	"files": [
+		"index.js",
+		"index.d.ts",
+		"openapi.json",
+		"README.md",
+		"LICENSE"
+	],
+	"engines": {
+		"node": ">=18"
+	},
+	"sideEffects": false,
+	"scripts": {
+		"test": "node --test test/*.test.js"
+	}
+}
