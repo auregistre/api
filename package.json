@@ -1,6 +1,6 @@
 {
 	"name": "auregistre",
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"description": "What changed in a French company, and when. Official zero-dependency client for the auregistre API.",
 	"keywords": [
 		"siren",
@@ -10,6 +10,7 @@
 		"registry",
 		"open-data",
 		"timeline",
+		"insolvency",
 		"entreprise"
 	],
 	"homepage": "https://github.com/auregistre/api#readme",

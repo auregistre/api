@@ -111,10 +111,82 @@ async function* walk(url, rowsKey, options) {
  *
  * There is one entry per field that has CHANGED at least once. A field that has
  * never moved is not a timeline, it is a state, and it is left out.
+ *
+ * `proceedings` holds the insolvency judgments beside it rather than inside
+ * it: a timeline entry follows the VALUE of a field, a judgment is a dated
+ * EVENT, and one field name must never mean two things.
  */
 export async function timeline(siren, options) {
 	const nine = String(siren).replace(/[\s.-]/g, '');
 	return json(address(ask(options).baseUrl, `/api/company/${nine}/timeline`), options);
+}
+
+/**
+ * How many companies one watch call takes.
+ *
+ * The API keeps the first twenty and drops the rest WITHOUT SAYING SO, because
+ * refusing a whole watch over one company too many would be worse on its side
+ * of the wire. On this side there is a caller to tell, so this client refuses
+ * rather than watching fewer companies than it was handed.
+ */
+export const MAX_WATCHED = 20;
+
+/**
+ * What the gazette published about companies you already track, since a date.
+ *
+ * It takes identifiers you already hold and never a criterion, so it is not a
+ * search: a caller who does not know a SIREN learns none from it.
+ *
+ * The window filters on the PUBLICATION date, not on the date of the act. The
+ * two differ by sixteen days at the median, and a watch that filtered on the act
+ * would never see a judgment ruled before its last visit and published after.
+ *
+ * Each company spends one unit of the rate limit, so twenty companies cost
+ * twenty.
+ */
+export async function changes(siren, options = {}) {
+	const many = (Array.isArray(siren) ? siren : String(siren).split(','))
+		.map((one) => String(one).replace(/[\s.-]/g, ''))
+		.filter(Boolean);
+	if (many.length > MAX_WATCHED) {
+		throw new RangeError(
+			`${many.length} companies asked for, ${MAX_WATCHED} at most. The API would keep ${MAX_WATCHED} and drop the rest in silence: split the call instead.`
+		);
+	}
+	const since = options.since instanceof Date ? options.since.toISOString().slice(0, 10) : options.since;
+	return json(
+		address(ask(options).baseUrl, '/api/changes', { siren: many.join(','), since }),
+		options
+	);
+}
+
+/**
+ * Insolvency openings, a rolling twelve months against the twelve before.
+ *
+ * Called with no scope it counts France. Otherwise pass `{ department }` or
+ * `{ trade }`, and the value must be one the website already publishes as a
+ * page: an unknown one is a 404 rather than a query composed from what you sent.
+ *
+ * Closures are not counted - they are the opposite of a new failure - and the
+ * current month is always excluded, because a month still running reads as a
+ * collapse.
+ */
+export async function insolvencies(scope, options) {
+	/*
+	 * A caller who wants France with a fetch of their own writes
+	 * `insolvencies({ fetch })`, which is an options object and not a scope.
+	 * Reading it as an empty scope would drop their fetch in silence, so what
+	 * decides here is whether a scope KEY is present, never the arity.
+	 */
+	const aimed =
+		typeof scope === 'object' && scope !== null && ('department' in scope || 'trade' in scope);
+	const settings = aimed ? options : (scope ?? options);
+	const path = !aimed
+		? '/api/insolvencies'
+		: 'department' in scope
+			? `/api/insolvencies/department/${encodeURIComponent(scope.department)}`
+			: `/api/insolvencies/trade/${encodeURIComponent(scope.trade)}`;
+	return json(address(ask(settings).baseUrl, path), settings);
 }
 
 /** The machine-readable contract this client was written against. */

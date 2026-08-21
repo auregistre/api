@@ -7,6 +7,10 @@ the share capital as of today. This API publishes the **history**: every value
 the French official gazette (BODACC) has recorded for a company, the date it
 was published, and a link to the announcement that published it.
 
+Three things follow from that one idea: the **timeline** of a company and the
+insolvency judgments against it, a **watch** over companies you already track,
+and the **count** of insolvency openings over time.
+
 Nothing is inferred, scored or estimated.
 
 No API key, no account, no quota to apply for. Every figure here was published
@@ -25,9 +29,9 @@ npm install auregistre
 ```
 
 ```js
-import { timeline, ApiError } from 'auregistre';
+import { timeline, changes, insolvencies, ApiError } from 'auregistre';
 
-// Doctolib. Its share capital has moved more than fifty times.
+const doctolib = await timeline('794 598 813');
 ```
 
 Zero dependencies, ESM, Node 18 or newer. The client is a thin layer: it builds
@@ -38,15 +42,25 @@ stops you from calling the API with `curl`.
 
 | Address | Answers |
 | --- | --- |
-| `GET /api/company/{siren}/timeline` | Every recorded change for one company |
+| `GET /api/company/{siren}/timeline` | Every recorded change for one company, and its insolvency judgments |
+| `GET /api/changes?siren={a,b,c}&since={date}` | What the gazette published on companies you already track |
+| `GET /api/insolvencies` | Insolvency openings in France, twelve months against the twelve before |
+| `GET /api/insolvencies/department/{code}` | The same barometer, for one department |
+| `GET /api/insolvencies/trade/{slug}` | The same barometer, for one trade |
 | `GET /api/openapi.json` | The contract, generated from the constants the code serves |
 | `GET /api` | The human documentation, with one anchor per refusal code |
 
 There is deliberately **no search endpoint**, and there will not be one: article
 A.123-69 of the French commercial code forbids four search criteria, all
 judicial, and the only shape that cannot expose them is the one that exposes no
-criterion at all. To resolve a NAME into a SIREN, the state's own API does it
-better: `recherche-entreprises.api.gouv.fr`.
+criterion at all. `/api/changes` is not an exception - it takes identifiers you
+already hold, never criteria, and a caller who does not know a SIREN learns none
+from it. To resolve a NAME into a SIREN, the state's own API does it better:
+`recherche-entreprises.api.gouv.fr`.
+
+The two barometer scopes are the **closed lists the website already publishes as
+pages**, never a filter composed from what you send: an unknown department or
+trade is a 404, and the refusal carries the list you can choose from.
 
 ## The conventions, which are the same across the fleet
 
@@ -95,6 +109,22 @@ reader draw a wrong conclusion in silence.
 - **Announcements that merely cite a SIREN are excluded.** On large franchised
   networks these are around 40% of what a naive search on the identifier
   returns, and they describe a different company.
+
+Three more belong to the addresses that came after the timeline.
+
+- **`insolvency` is served ready-made, and must not be recomputed.** Taking the
+  most severe entry of `proceedings` would mark as liquidated a company a court
+  put back on its feet: a closure cancels a liquidation, a set-aside cancels the
+  judgment it sets aside, and two judgments can share a date.
+- **The watch filters on the PUBLICATION date, not on the date of the act.** The
+  two differ by sixteen days at the median, and filtering on the act would miss
+  precisely what a watch exists to catch. `complete: false` means the list is a
+  BEGINNING; an empty list with `complete: true` means nothing happened, which
+  is a different fact.
+- **The three natures of insolvency do not add up to the total.** A judgment
+  naming two procedures answers two filters, which overshoots by well under one
+  percent. Closures are not counted at all, and the current month is always
+  excluded because a month still running reads as a collapse.
 
 ## Examples
 

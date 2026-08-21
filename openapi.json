@@ -1,10 +1,10 @@
 {
 	"openapi": "3.1.0",
 	"info": {
-		"title": "auregistre timeline API",
+		"title": "auregistre API",
 		"version": "1.0.0",
 		"summary": "What changed in a French company, and when.",
-		"description": "Most company-data services publish a **state**: the name, address and share capital as of today.\nThis API publishes the **history**: every value the French official gazette (BODACC) has recorded for a company,\nwith the date it was published and a link to the announcement that published it.\n\nNothing is inferred, scored or estimated. Every value returned was published by the register on the date shown.\n\nThe gazette has been digitised since 2008. For a company older than that, the earliest value returned\nis the oldest one on record, not the company's original value.\n\nNo API key and no account are involved. Requests are rate limited by IP.",
+		"description": "Most company-data services publish a **state**: the name, address and share capital as of today.\nThis API publishes the **history**: every value the French official gazette (BODACC) has recorded for a company,\nwith the date it was published and a link to the announcement that published it.\n\nThree things follow from that one idea: the timeline of a company, a watch over companies you already track,\nand the count of insolvency openings over time. There is no lookup by name, by director or by place: see the\ndocumentation for why there never will be.\n\nNothing is inferred, scored or estimated. Every value returned was published by the register on the date shown.\n\nThe gazette has been digitised since 2008. For a company older than that, the earliest value returned\nis the oldest one on record, not the company's original value.\n\nNo API key and no account are involved. Requests are rate limited by IP.",
 		"termsOfService": "https://auregistre.fr/cgu",
 		"contact": {
 			"name": "auregistre",
@@ -31,6 +31,14 @@
 		{
 			"name": "company",
 			"description": "Read-only access by SIREN. There is deliberately no search endpoint: see the documentation for why."
+		},
+		{
+			"name": "watch",
+			"description": "What the gazette published on companies you already track. It takes identifiers, never criteria, so it is not a search either."
+		},
+		{
+			"name": "insolvency",
+			"description": "Aggregate counts of insolvency openings, over the scopes the website already publishes as pages."
 		}
 	],
 	"paths": {
@@ -213,6 +221,317 @@
 					}
 				}
 			}
+		},
+		"/changes": {
+			"get": {
+				"tags": [
+					"watch"
+				],
+				"operationId": "getChanges",
+				"summary": "What the gazette published on companies you track",
+				"description": "Pass the SIREN you already hold and a date; get back what the gazette printed about each of them since.\n\n**Entries are filtered on the publication date, not on the date of the act.** The two differ by 16 days at the median,\nso a watch filtered on the act would never see a judgment ruled before its last visit and published after.\n\nUp to 20 companies per call, and each one spends one unit of the rate limit.\nValues that are not nine digits are ignored rather than refused; a call where none are left is a 400.\n\nResponses are cached at the edge for one hour. Sort your SIREN or reuse the same order: the cache key is the URL.",
+				"parameters": [
+					{
+						"name": "siren",
+						"in": "query",
+						"required": true,
+						"description": "Comma-separated nine-digit identifiers, up to 20. Spaces, dots and dashes are ignored.",
+						"schema": {
+							"type": "string"
+						},
+						"examples": {
+							"deux": {
+								"value": "794598813,552081317",
+								"summary": "Doctolib and EDF"
+							}
+						}
+					},
+					{
+						"name": "since",
+						"in": "query",
+						"required": false,
+						"description": "Publication date to look back to, ISO 8601. Defaults to 30 days ago. An unreadable value falls back to the default rather than being refused.",
+						"schema": {
+							"type": "string",
+							"format": "date"
+						}
+					},
+					{
+						"name": "If-None-Match",
+						"in": "header",
+						"required": false,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "One entry per company, whether or not anything moved.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Changes"
+								}
+							}
+						}
+					},
+					"304": {
+						"description": "Your `If-None-Match` matched. No body."
+					},
+					"400": {
+						"description": "No readable SIREN was passed.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#invalid-siren",
+									"title": "No company requested",
+									"status": 400,
+									"detail": "Pass the companies to watch in the siren query parameter, comma-separated."
+								}
+							}
+						}
+					},
+					"429": {
+						"description": "Rate limit exceeded.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#rate-limit-exceeded",
+									"title": "Too many requests",
+									"status": 429,
+									"detail": "This API allows 30 company reads per minute per IP address."
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "The gazette did not answer.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#upstream-unavailable",
+									"title": "Upstream register unavailable",
+									"status": 503,
+									"detail": "The French official gazette did not answer in time."
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/insolvencies": {
+			"get": {
+				"tags": [
+					"insolvency"
+				],
+				"operationId": "getInsolvencies",
+				"summary": "Insolvency openings in France, twelve months against the twelve before",
+				"description": "Judgments OPENING an insolvency procedure, counted over a rolling twelve months and against the twelve before,\nmonth by month, by nature, and ranked by department.\n\nClosures are excluded: they are the opposite of a new failure. The current month is excluded too, because a month\nstill running reads as a collapse. The same figures are on the `/defaillances` page, and its monthly series has been\ndownloadable as CSV for months: this address adds no new data, it hands a machine what a reader could already copy.\n\nResponses are cached at the edge for 24 hours.",
+				"parameters": [
+					{
+						"name": "If-None-Match",
+						"in": "header",
+						"required": false,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "The national barometer.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Insolvencies"
+								}
+							}
+						}
+					},
+					"304": {
+						"description": "Your `If-None-Match` matched. No body."
+					},
+					"429": {
+						"description": "Rate limit exceeded.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#rate-limit-exceeded",
+									"title": "Too many requests",
+									"status": 429,
+									"detail": "This API allows 30 reads per minute per IP address."
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "The gazette did not answer. No count is served rather than a zero.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#upstream-unavailable",
+									"title": "Upstream register unavailable",
+									"status": 503,
+									"detail": "The French official gazette did not answer in time."
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/insolvencies/department/{code}": {
+			"get": {
+				"tags": [
+					"insolvency"
+				],
+				"operationId": "getInsolvenciesByDepartment",
+				"summary": "The same barometer, for one department",
+				"description": "The code is checked against the closed list the website publishes as pages. An unknown code is a 404, never a composed query.",
+				"parameters": [
+					{
+						"name": "code",
+						"in": "path",
+						"required": true,
+						"description": "Two-digit department code, 2A or 2B for Corsica, three digits overseas.",
+						"schema": {
+							"type": "string"
+						},
+						"examples": {
+							"isere": {
+								"value": "38",
+								"summary": "Isère"
+							}
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "The barometer for that department.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Insolvencies"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "No such department.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#no-such-endpoint",
+									"title": "No such department",
+									"status": 404,
+									"detail": "99 is not a French department code."
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/insolvencies/trade/{slug}": {
+			"get": {
+				"tags": [
+					"insolvency"
+				],
+				"operationId": "getInsolvenciesByTrade",
+				"summary": "The same barometer, for one trade",
+				"description": "The slug is checked against a closed table, and a refusal lists the trades that exist.\n\nA trade is read from the WORDS of the activity the gazette prints, not from an activity code: the gazette publishes a\nsentence, not a code. Two trades can therefore overlap on one announcement.",
+				"parameters": [
+					{
+						"name": "slug",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"enum": [
+								"restauration",
+								"batiment",
+								"renovation",
+								"commerce-de-detail",
+								"bar",
+								"habillement",
+								"plomberie",
+								"nettoyage",
+								"alimentation",
+								"boulangerie",
+								"traiteur",
+								"transport",
+								"informatique",
+								"conseil",
+								"coiffure",
+								"taxi",
+								"evenementiel",
+								"electricite",
+								"esthetique",
+								"garage",
+								"jardinage",
+								"immobilier",
+								"securite",
+								"boucherie",
+								"hebergement"
+							]
+						},
+						"examples": {
+							"restauration": {
+								"value": "restauration",
+								"summary": "Restauration"
+							}
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "The barometer for that trade.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Insolvencies"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "No such trade.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#no-such-endpoint",
+									"title": "No such trade",
+									"status": 404,
+									"detail": "boulangerie-artisanale is not one of the trades this API covers."
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 	},
 	"components": {
@@ -302,12 +621,472 @@
 					}
 				}
 			},
+			"Proceeding": {
+				"type": "object",
+				"required": [
+					"date",
+					"title"
+				],
+				"properties": {
+					"date": {
+						"type": "string",
+						"format": "date",
+						"description": "The date of the judgment, not of its publication. The two differ by 16 days at the median, and 14 announcements out of 1,000 fall in a different year.",
+						"examples": [
+							"2026-07-22"
+						]
+					},
+					"published_on": {
+						"type": "string",
+						"format": "date",
+						"description": "The day the gazette printed it, when it differs from `date`. This is the date that starts legal deadlines."
+					},
+					"title": {
+						"type": "string",
+						"description": "The judgment as the court clerk published it, in French.",
+						"examples": [
+							"Jugement d'ouverture d'une procédure de redressement judiciaire"
+						]
+					},
+					"status": {
+						"type": "string",
+						"enum": [
+							"safeguard",
+							"receivership",
+							"recovery_plan",
+							"liquidation",
+							"closed_for_insufficient_assets",
+							"closed_debts_paid",
+							"judgment_set_aside"
+						],
+						"description": "The status this judgment installs. Absent on the 1.4% of judgments whose wording we refuse to classify: a procedure we cannot read must not manufacture a status, in either direction."
+					},
+					"appointee": {
+						"type": "object",
+						"description": "Who the court appointed, as the announcement names them. Roles stay in French: they are the words the ruling uses.",
+						"required": [
+							"role",
+							"firm",
+							"person",
+							"court"
+						],
+						"properties": {
+							"role": {
+								"type": "string",
+								"examples": [
+									"Mandataire judiciaire"
+								]
+							},
+							"firm": {
+								"type": "string"
+							},
+							"person": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"court": {
+								"type": [
+									"string",
+									"null"
+								],
+								"examples": [
+									"Tribunal de Commerce de Grenoble"
+								]
+							}
+						}
+					},
+					"claims_deadline": {
+						"type": "string",
+						"format": "date",
+						"description": "The last day to file a claim, on an OPENING judgment only. The only date in this API that is enforceable against someone."
+					},
+					"source": {
+						"type": "string",
+						"format": "uri",
+						"description": "The announcement that published this judgment."
+					}
+				}
+			},
+			"Insolvency": {
+				"type": "object",
+				"required": [
+					"status",
+					"since"
+				],
+				"properties": {
+					"status": {
+						"type": "string",
+						"enum": [
+							"safeguard",
+							"receivership",
+							"recovery_plan",
+							"liquidation",
+							"closed_for_insufficient_assets",
+							"closed_debts_paid",
+							"judgment_set_aside"
+						]
+					},
+					"since": {
+						"type": "string",
+						"format": "date",
+						"description": "The date of the judgment that installed it."
+					},
+					"source": {
+						"type": "string",
+						"format": "uri"
+					}
+				}
+			},
+			"Attribution": {
+				"type": "array",
+				"description": "Source and retrieval date. Reusing this data requires citing both; they travel in the payload so that they reach consumers who never see the website.",
+				"items": {
+					"type": "object",
+					"required": [
+						"name",
+						"url",
+						"licence",
+						"retrieved"
+					],
+					"properties": {
+						"name": {
+							"type": "string"
+						},
+						"url": {
+							"type": "string",
+							"format": "uri"
+						},
+						"licence": {
+							"type": "string"
+						},
+						"retrieved": {
+							"type": "string",
+							"format": "date-time"
+						}
+					}
+				}
+			},
+			"ServedBy": {
+				"type": "object",
+				"description": "Which service produced this response. `attribution` says where the data comes from; this says who served it. A record copied into another database can then be traced back, if only to know where to report a wrong line.",
+				"required": [
+					"name",
+					"url"
+				],
+				"properties": {
+					"name": {
+						"type": "string",
+						"examples": [
+							"auregistre"
+						]
+					},
+					"url": {
+						"type": "string",
+						"format": "uri",
+						"examples": [
+							"https://auregistre.fr/api"
+						]
+					}
+				}
+			},
+			"Changes": {
+				"type": "object",
+				"required": [
+					"since",
+					"companies",
+					"attribution",
+					"served_by",
+					"terms",
+					"documentation",
+					"notice"
+				],
+				"properties": {
+					"since": {
+						"type": "string",
+						"format": "date",
+						"description": "The date the window starts, as it was understood. Echoed so that a caller never believes it asked for something else."
+					},
+					"companies": {
+						"type": "array",
+						"description": "One entry per readable SIREN, in ascending order, whether or not anything moved.",
+						"items": {
+							"type": "object",
+							"required": [
+								"siren",
+								"legal_name",
+								"changes",
+								"complete"
+							],
+							"properties": {
+								"siren": {
+									"type": "string"
+								},
+								"legal_name": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"changes": {
+									"type": "array",
+									"description": "What the gazette published in the window, most recent first.",
+									"items": {
+										"type": "object",
+										"required": [
+											"date",
+											"published_on",
+											"title"
+										],
+										"properties": {
+											"date": {
+												"type": "string",
+												"format": "date",
+												"description": "The date of the act."
+											},
+											"published_on": {
+												"type": "string",
+												"format": "date",
+												"description": "The day the gazette published it. This is the field the window filters on."
+											},
+											"title": {
+												"type": "string",
+												"description": "The announcement, in French."
+											},
+											"source": {
+												"type": "string",
+												"format": "uri"
+											}
+										}
+									}
+								},
+								"complete": {
+									"type": "boolean",
+									"description": "False when this entry is a beginning: the gazette fell silent, or the company published more announcements in the window than one page of the gazette holds. An empty list with `complete: true` means nothing happened."
+								}
+							}
+						}
+					},
+					"attribution": {
+						"$ref": "#/components/schemas/Attribution"
+					},
+					"served_by": {
+						"$ref": "#/components/schemas/ServedBy"
+					},
+					"terms": {
+						"type": "string",
+						"format": "uri"
+					},
+					"documentation": {
+						"type": "string",
+						"format": "uri"
+					},
+					"notice": {
+						"type": "string"
+					}
+				}
+			},
+			"Insolvencies": {
+				"type": "object",
+				"required": [
+					"scope",
+					"window",
+					"reference",
+					"change_percent",
+					"monthly",
+					"by_nature",
+					"attribution",
+					"served_by",
+					"terms",
+					"documentation",
+					"notice"
+				],
+				"properties": {
+					"scope": {
+						"type": "object",
+						"required": [
+							"kind",
+							"code",
+							"name",
+							"page_url"
+						],
+						"properties": {
+							"kind": {
+								"type": "string",
+								"enum": [
+									"country",
+									"department",
+									"trade"
+								]
+							},
+							"code": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": "string",
+								"description": "In French: it is a published value, not a UI label."
+							},
+							"page_url": {
+								"type": "string",
+								"format": "uri",
+								"description": "The page that shows the same thing to a human."
+							}
+						}
+					},
+					"window": {
+						"$ref": "#/components/schemas/InsolvencyWindow"
+					},
+					"reference": {
+						"allOf": [
+							{
+								"$ref": "#/components/schemas/InsolvencyWindow"
+							}
+						],
+						"description": "The twelve months before the window, to compare against."
+					},
+					"change_percent": {
+						"type": [
+							"number",
+							"null"
+						],
+						"description": "Null when the reference is zero: \"+100%\" from nothing means nothing, and a place with no failure last year did not explode, it started."
+					},
+					"monthly": {
+						"type": "array",
+						"description": "Both windows, month by month, oldest first.",
+						"items": {
+							"type": "object",
+							"required": [
+								"month",
+								"openings"
+							],
+							"properties": {
+								"month": {
+									"type": "string",
+									"examples": [
+										"2026-07"
+									]
+								},
+								"openings": {
+									"type": "integer"
+								}
+							}
+						}
+					},
+					"by_nature": {
+						"type": "array",
+						"description": "Three separate counts over the window. They do NOT add up to its total: a judgment naming two procedures answers two filters, which overshoots the total by well under one percent.",
+						"items": {
+							"type": "object",
+							"required": [
+								"nature",
+								"openings"
+							],
+							"properties": {
+								"nature": {
+									"type": "string",
+									"enum": [
+										"liquidation",
+										"receivership",
+										"safeguard"
+									]
+								},
+								"openings": {
+									"type": [
+										"integer",
+										"null"
+									],
+									"description": "Null when that one count went unanswered, the rest of the response standing."
+								}
+							}
+						}
+					},
+					"by_department": {
+						"type": "array",
+						"description": "Ranking over the window, largest first. Present on the country scope only. Codes the site has no page for are left out.",
+						"items": {
+							"type": "object",
+							"required": [
+								"code",
+								"name",
+								"openings"
+							],
+							"properties": {
+								"code": {
+									"type": "string",
+									"examples": [
+										"75"
+									]
+								},
+								"name": {
+									"type": "string",
+									"examples": [
+										"Paris"
+									]
+								},
+								"openings": {
+									"type": "integer"
+								}
+							}
+						}
+					},
+					"attribution": {
+						"$ref": "#/components/schemas/Attribution"
+					},
+					"served_by": {
+						"$ref": "#/components/schemas/ServedBy"
+					},
+					"terms": {
+						"type": "string",
+						"format": "uri"
+					},
+					"documentation": {
+						"type": "string",
+						"format": "uri"
+					},
+					"notice": {
+						"type": "string"
+					}
+				}
+			},
+			"InsolvencyWindow": {
+				"type": "object",
+				"required": [
+					"from",
+					"to",
+					"openings"
+				],
+				"properties": {
+					"from": {
+						"type": "string",
+						"examples": [
+							"2025-08"
+						]
+					},
+					"to": {
+						"type": "string",
+						"description": "Last month included. The current month is never in it: still running, it would read as a collapse.",
+						"examples": [
+							"2026-07"
+						]
+					},
+					"openings": {
+						"type": "integer"
+					}
+				}
+			},
 			"Timeline": {
 				"type": "object",
 				"required": [
 					"siren",
 					"legal_name",
 					"timeline",
+					"proceedings",
+					"insolvency",
 					"coverage",
 					"attribution",
 					"served_by",
@@ -376,6 +1155,24 @@
 							}
 						}
 					},
+					"proceedings": {
+						"type": "array",
+						"description": "Insolvency judgments, most recent first. Separate from `timeline` on purpose: a timeline entry follows the value of a field, a judgment is a dated event. Empty for a company that has never been through one.",
+						"items": {
+							"$ref": "#/components/schemas/Proceeding"
+						}
+					},
+					"insolvency": {
+						"description": "Where the company stands under insolvency law, or null when no judgment installed a status. Do not recompute this from `proceedings`: a closure cancels a liquidation, a set-aside cancels the judgment it sets aside, and two judgments can share a date.",
+						"oneOf": [
+							{
+								"$ref": "#/components/schemas/Insolvency"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
 					"coverage": {
 						"type": "object",
 						"required": [
@@ -401,56 +1198,10 @@
 						}
 					},
 					"attribution": {
-						"type": "array",
-						"description": "Source and retrieval date. Reusing this data requires citing both; they travel in the payload so that they reach consumers who never see the website.",
-						"items": {
-							"type": "object",
-							"required": [
-								"name",
-								"url",
-								"licence",
-								"retrieved"
-							],
-							"properties": {
-								"name": {
-									"type": "string"
-								},
-								"url": {
-									"type": "string",
-									"format": "uri"
-								},
-								"licence": {
-									"type": "string"
-								},
-								"retrieved": {
-									"type": "string",
-									"format": "date-time"
-								}
-							}
-						}
+						"$ref": "#/components/schemas/Attribution"
 					},
 					"served_by": {
-						"type": "object",
-						"description": "Which service produced this response. `attribution` says where the data comes from; this says who served it. A record copied into another database can then be traced back, if only to know where to report a wrong line.",
-						"required": [
-							"name",
-							"url"
-						],
-						"properties": {
-							"name": {
-								"type": "string",
-								"examples": [
-									"auregistre"
-								]
-							},
-							"url": {
-								"type": "string",
-								"format": "uri",
-								"examples": [
-									"https://auregistre.fr/api"
-								]
-							}
-						}
+						"$ref": "#/components/schemas/ServedBy"
 					},
 					"terms": {
 						"type": "string",

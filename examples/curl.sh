@@ -6,6 +6,18 @@ set -euo pipefail
 # Every recorded change for Doctolib, with the announcement behind each one.
 curl -s 'https://auregistre.fr/api/company/794598813/timeline' | jq '.timeline[] | {field, changes}'
 
+# The same answer says where the company stands under insolvency law, ready-made.
+# Do not recompute it from .proceedings by taking the worst judgment: a closure
+# cancels a liquidation, and a set-aside cancels the judgment it sets aside.
+curl -s 'https://auregistre.fr/api/company/981809627/timeline' | jq '{insolvency, proceedings: .proceedings[0]}'
+
+# A watch over companies you already track. Twenty at most, thirty days by default.
+curl -s 'https://auregistre.fr/api/changes?siren=794598813,552032534&since=2026-06-01' | jq '.companies[] | {legal_name, seen: (.changes | length), complete}'
+
+# Insolvency openings, twelve months against the twelve before. Add
+# /department/{code} or /trade/{slug} for one slice of the country.
+curl -s 'https://auregistre.fr/api/insolvencies' | jq '{window, reference, change_percent}'
+
 # Conditional: hand back the validator and get a 304 with no body.
 etag=$(curl -sI 'https://auregistre.fr/api/company/794598813/timeline' | tr -d '\r' | awk '/^[Ee][Tt]ag:/{print $2}')
 curl -s -o /dev/null -w '%{http_code}\n' -H "if-none-match: $etag" 'https://auregistre.fr/api/company/794598813/timeline'

@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to publish, with the v prefix (e.g. v0.0.1).
+        description: Tag to publish, with the v prefix (e.g. v0.1.0).
         required: true
 
 permissions:
