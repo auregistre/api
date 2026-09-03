@@ -227,6 +227,77 @@ export type InsolvencyScope = { department: string } | { trade: string };
  */
 export declare function timeline(siren: string | number, options?: Options): Promise<Timeline>;
 
+/** A monetary amount with its currency beside it, never announced once at the top. */
+export interface Amount {
+	value: number;
+	currency: 'EUR';
+}
+
+/**
+ * Which accounts a statement describes.
+ *
+ * `legal_entity` is the one company registered under this SIREN; `group` is
+ * the consolidated accounts of its group. THE TWO NEVER ADD UP: a holding
+ * files a revenue of zero beside a group revenue in the billions.
+ */
+export type Perimeter = 'legal_entity' | 'group';
+
+/** The thirteen ratios the INPI computes. The unit is in the field name; null means it was not computed. */
+export interface FinancialRatios {
+	ebitda_margin_percent: number | null;
+	financial_autonomy_percent: number | null;
+	debt_ratio_percent: number | null;
+	current_ratio: number | null;
+	cash_flow_to_revenue_percent: number | null;
+	debt_repayment_capacity_years: number | null;
+	interest_coverage: number | null;
+	working_capital_to_revenue_percent: number | null;
+	working_capital_days: number | null;
+	inventory_turnover_days: number | null;
+	customer_credit_days: number | null;
+	supplier_credit_days: number | null;
+}
+
+/** One fiscal year, as filed. */
+export interface FinancialStatement {
+	/** `YYYY-MM-DD`, the closing date of the fiscal year. */
+	fiscal_year_end: string;
+	fiscal_year: string;
+	perimeter: Perimeter;
+	/** Null when not published, or when the dataset carried a zero beside a non-zero net income. */
+	revenue: Amount | null;
+	/** Against the previous fiscal year OF THE SAME PERIMETER, to one decimal. The only computed figure. */
+	revenue_change_percent: number | null;
+	gross_margin: Amount | null;
+	ebitda: Amount | null;
+	ebit: Amount | null;
+	net_income: Amount | null;
+	ratios: FinancialRatios;
+}
+
+export interface Financials extends Envelope {
+	siren: string;
+	/** Most recent first, both perimeters mixed: `perimeter` tells them apart on every entry. */
+	statements: FinancialStatement[];
+	coverage: {
+		statements: number;
+		perimeters: Perimeter[];
+		/** Always true: a confidential filing is absent, never served as zeros. */
+		confidential_filings_excluded: true;
+	};
+}
+
+/**
+ * The annual accounts one company filed, fiscal year by fiscal year.
+ *
+ * Revenue, gross margin, EBITDA, EBIT, net income and the thirteen INPI ratios,
+ * most recent first. Quote the `perimeter` with the figure: company-only and
+ * consolidated accounts never add up. A company with no published accounts is
+ * a 404 whose `type` ends in `no-financial-statements`, which is not
+ * `company-not-found`.
+ */
+export declare function financials(siren: string | number, options?: Options): Promise<Financials>;
+
 /**
  * What the gazette published about companies you already track.
  *

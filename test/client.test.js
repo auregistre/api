@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ApiError, BASE_URL, timeline, changes, insolvencies, MAX_WATCHED } from '../index.js';
+import { ApiError, BASE_URL, timeline, financials, changes, insolvencies, MAX_WATCHED } from '../index.js';
 
 /*
  * The client is a thin layer, so what is worth testing is the thin layer: the
@@ -80,6 +80,16 @@ test('the barometer scopes the three addresses the site publishes', async () => 
 		'https://auregistre.fr/api/insolvencies',
 		'https://auregistre.fr/api/insolvencies/department/2A',
 		'https://auregistre.fr/api/insolvencies/trade/restauration'
+	]);
+});
+
+test('the financials take the same identifier as the timeline, written the same way', async () => {
+	const { doFetch, calls } = fakeFetch({ siren: '794598813', statements: [] });
+	await financials('794 598 813', { fetch: doFetch });
+	await financials(794598813, { fetch: doFetch, baseUrl: 'https://develop.auregistre.fr' });
+	assert.deepEqual(calls, [
+		'https://auregistre.fr/api/company/794598813/financials',
+		'https://develop.auregistre.fr/api/company/794598813/financials'
 	]);
 });
 

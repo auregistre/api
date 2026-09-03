@@ -122,6 +122,24 @@ export async function timeline(siren, options) {
 }
 
 /**
+ * The annual accounts one company filed, fiscal year by fiscal year.
+ *
+ * Revenue, gross margin, EBITDA, EBIT, net income and the thirteen ratios the
+ * INPI computes from the filed statements, most recent first. Every entry says
+ * its `perimeter`: `legal_entity` is the one company registered under this
+ * SIREN, `group` the consolidated accounts of its group, and THE TWO NEVER ADD
+ * UP. Quote the perimeter with the figure.
+ *
+ * A company that exists and has no published accounts is a 404 whose `type`
+ * ends in `no-financial-statements`, which is not `company-not-found`: do not
+ * delete the row, it may file next year.
+ */
+export async function financials(siren, options) {
+	const nine = String(siren).replace(/[\s.-]/g, '');
+	return json(address(ask(options).baseUrl, `/api/company/${nine}/financials`), options);
+}
+
+/**
  * How many companies one watch call takes.
  *
  * The API keeps the first twenty and drops the rest WITHOUT SAYING SO, because
