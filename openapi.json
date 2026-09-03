@@ -1,13 +1,13 @@
 {
 	"openapi": "3.1.0",
 	"info": {
-		"title": "auregistre API",
+		"title": "Auregistre API",
 		"version": "1.0.0",
 		"summary": "What changed in a French company, and when.",
-		"description": "Most company-data services publish a **state**: the name, address and share capital as of today.\nThis API publishes the **history**: every value the French official gazette (BODACC) has recorded for a company,\nwith the date it was published and a link to the announcement that published it.\n\nThree things follow from that one idea: the timeline of a company, a watch over companies you already track,\nand the count of insolvency openings over time. There is no lookup by name, by director or by place: see the\ndocumentation for why there never will be.\n\nNothing is inferred, scored or estimated. Every value returned was published by the register on the date shown.\n\nThe gazette has been digitised since 2008. For a company older than that, the earliest value returned\nis the oldest one on record, not the company's original value.\n\nNo API key and no account are involved. Requests are rate limited by IP.",
+		"description": "Most company-data services publish a **state**: the name, address and share capital as of today.\nThis API publishes the **history**: every value the French official gazette (BODACC) has recorded for a company,\nwith the date it was published and a link to the announcement that published it.\n\nFour things follow from that one idea: the timeline of a company, its filed annual accounts fiscal year by\nfiscal year, a watch over companies you already track, and the count of insolvency openings over time. There\nis no lookup by name, by director or by place: see the documentation for why there never will be.\n\nNothing is inferred, scored or estimated. Every value returned was published by the register on the date shown.\n\nThe gazette has been digitised since 2008. For a company older than that, the earliest value returned\nis the oldest one on record, not the company's original value.\n\nNo API key and no account are involved. Requests are rate limited by IP.",
 		"termsOfService": "https://auregistre.fr/cgu",
 		"contact": {
-			"name": "auregistre",
+			"name": "Auregistre",
 			"url": "https://auregistre.fr/api",
 			"email": "contact@auregistre.fr"
 		},
@@ -174,7 +174,7 @@
 									"type": "https://auregistre.fr/api#rate-limit-exceeded",
 									"title": "Too many requests",
 									"status": 429,
-									"detail": "This endpoint allows 30 requests per minute per IP address."
+									"detail": "This API allows 30 reads per minute per IP address."
 								}
 							}
 						},
@@ -204,7 +204,7 @@
 						}
 					},
 					"503": {
-						"description": "The gazette did not answer. This says nothing about whether the company exists.",
+						"description": "The upstream source did not answer. This says nothing about whether the company exists.",
 						"content": {
 							"application/problem+json": {
 								"schema": {
@@ -214,7 +214,187 @@
 									"type": "https://auregistre.fr/api#upstream-unavailable",
 									"title": "Upstream register unavailable",
 									"status": 503,
-									"detail": "The French official gazette did not answer in time."
+									"detail": "The upstream register did not answer in time."
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/company/{siren}/financials": {
+			"get": {
+				"tags": [
+					"company"
+				],
+				"operationId": "getCompanyFinancials",
+				"summary": "The filed annual accounts of one company, fiscal year by fiscal year",
+				"description": "Revenue, gross margin, EBITDA, EBIT, net income and the thirteen ratios the INPI computes from the accounts\na company files with the French business register, one entry per fiscal year and per perimeter.\n\n**The two perimeters never add up.** `legal_entity` is the one company registered under this SIREN;\n`group` is the consolidated accounts of its group. A holding can file a revenue of zero beside a group\nrevenue in the billions, and reading the wrong one is the single easiest mistake with this data.\n\nFilings kept confidential are not listed. A fiscal year absent here was not filed, was filed under\nconfidentiality, or has not been processed by the INPI yet. At most twenty filings are read, most recent first.\n\nSource: the open dataset of INPI financial ratios (Licence Ouverte 2.0), not the authenticated INPI API.\nResponses are cached at the edge for 24 hours. A cached response does not count against the rate limit.",
+				"parameters": [
+					{
+						"name": "siren",
+						"in": "path",
+						"required": true,
+						"description": "The nine-digit identifier of a French legal entity. Spaces, dots and dashes are accepted and ignored.",
+						"schema": {
+							"type": "string",
+							"pattern": "^[0-9 .-]{9,13}$"
+						},
+						"examples": {
+							"doctolib": {
+								"value": "794598813",
+								"summary": "Doctolib"
+							},
+							"edf": {
+								"value": "552081317",
+								"summary": "EDF"
+							}
+						}
+					},
+					{
+						"name": "If-None-Match",
+						"in": "header",
+						"required": false,
+						"description": "Send the previous `ETag` to get a 304 when nothing has changed.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "The filed accounts, fiscal year by fiscal year.",
+						"headers": {
+							"ETag": {
+								"description": "Weak validator of this representation.",
+								"schema": {
+									"type": "string"
+								}
+							},
+							"Cache-Control": {
+								"description": "Shared caches may keep this for 24 hours.",
+								"schema": {
+									"type": "string"
+								}
+							},
+							"Link": {
+								"description": "RFC 8631 discovery links: `service-desc` points at this document, `service-doc` at the human documentation, `license` at the data licence.",
+								"schema": {
+									"type": "string"
+								}
+							}
+						},
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Financials"
+								}
+							}
+						}
+					},
+					"304": {
+						"description": "Your `If-None-Match` matched. No body."
+					},
+					"400": {
+						"description": "The SIREN is not nine digits.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#invalid-siren",
+									"title": "Invalid SIREN",
+									"status": 400,
+									"detail": "A SIREN is the nine-digit identifier the French business register assigns to a legal entity."
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "The company has no published accounts on record.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#no-financial-statements",
+									"title": "No financial statements",
+									"status": 404,
+									"detail": "No published annual accounts are on record for SIREN 123456789 in the INPI ratios dataset. The company may exist and never have filed, have filed under confidentiality, or have filed accounts the INPI has not processed yet."
+								}
+							}
+						}
+					},
+					"405": {
+						"description": "This endpoint is read-only.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#method-not-allowed",
+									"title": "Method not allowed",
+									"status": 405,
+									"detail": "This endpoint is read-only. POST is not supported; use GET."
+								}
+							}
+						}
+					},
+					"429": {
+						"description": "Rate limit exceeded.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#rate-limit-exceeded",
+									"title": "Too many requests",
+									"status": 429,
+									"detail": "This API allows 30 reads per minute per IP address."
+								}
+							}
+						},
+						"headers": {
+							"Retry-After": {
+								"description": "Seconds to wait.",
+								"schema": {
+									"type": "integer"
+								}
+							},
+							"RateLimit-Limit": {
+								"schema": {
+									"type": "integer"
+								}
+							},
+							"RateLimit-Remaining": {
+								"schema": {
+									"type": "integer"
+								}
+							},
+							"RateLimit-Reset": {
+								"description": "Seconds until the window resets.",
+								"schema": {
+									"type": "integer"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "The upstream source did not answer. This says nothing about whether the company exists.",
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "https://auregistre.fr/api#upstream-unavailable",
+									"title": "Upstream register unavailable",
+									"status": 503,
+									"detail": "The upstream register did not answer in time."
 								}
 							}
 						}
@@ -779,7 +959,7 @@
 					"name": {
 						"type": "string",
 						"examples": [
-							"auregistre"
+							"Auregistre"
 						]
 					},
 					"url": {
@@ -1076,6 +1256,293 @@
 					},
 					"openings": {
 						"type": "integer"
+					}
+				}
+			},
+			"Amount": {
+				"type": "object",
+				"description": "A monetary amount with its currency beside it, never announced once at the top.",
+				"required": [
+					"value",
+					"currency"
+				],
+				"properties": {
+					"value": {
+						"type": "number",
+						"examples": [
+							311448000
+						]
+					},
+					"currency": {
+						"type": "string",
+						"enum": [
+							"EUR"
+						]
+					}
+				}
+			},
+			"FinancialStatement": {
+				"type": "object",
+				"required": [
+					"fiscal_year_end",
+					"fiscal_year",
+					"perimeter",
+					"revenue",
+					"revenue_change_percent",
+					"gross_margin",
+					"ebitda",
+					"ebit",
+					"net_income",
+					"ratios"
+				],
+				"properties": {
+					"fiscal_year_end": {
+						"type": "string",
+						"format": "date",
+						"examples": [
+							"2024-12-31"
+						]
+					},
+					"fiscal_year": {
+						"type": "string",
+						"examples": [
+							"2024"
+						]
+					},
+					"perimeter": {
+						"type": "string",
+						"enum": [
+							"legal_entity",
+							"group"
+						],
+						"description": "`legal_entity`: the accounts of the one company registered under this SIREN. `group`: the consolidated accounts of its group. The two never add up, and a holding can carry a revenue of zero beside a group revenue in the billions."
+					},
+					"revenue": {
+						"description": "Null when not published, or when the dataset carries a zero beside a non-zero net income: an empty field, not a measurement.",
+						"oneOf": [
+							{
+								"$ref": "#/components/schemas/Amount"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"revenue_change_percent": {
+						"type": [
+							"number",
+							"null"
+						],
+						"description": "Against the previous fiscal year OF THE SAME PERIMETER, to one decimal. Null without such a year. The only computed figure in this response."
+					},
+					"gross_margin": {
+						"description": "Gross margin, as filed.",
+						"oneOf": [
+							{
+								"$ref": "#/components/schemas/Amount"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"ebitda": {
+						"description": "Excedent brut d'exploitation, as filed.",
+						"oneOf": [
+							{
+								"$ref": "#/components/schemas/Amount"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"ebit": {
+						"description": "Resultat d'exploitation, as filed.",
+						"oneOf": [
+							{
+								"$ref": "#/components/schemas/Amount"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"net_income": {
+						"description": "Null when not published, or when the dataset carries a zero beside a non-zero revenue.",
+						"oneOf": [
+							{
+								"$ref": "#/components/schemas/Amount"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"ratios": {
+						"type": "object",
+						"description": "The thirteen ratios the INPI computes. The unit is in the field name; null means the INPI did not compute it.",
+						"properties": {
+							"ebitda_margin_percent": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "EBITDA over revenue, in percent."
+							},
+							"financial_autonomy_percent": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "Equity over total balance sheet, in percent."
+							},
+							"debt_ratio_percent": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "Financial debt over equity, in percent."
+							},
+							"current_ratio": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "Current assets over current liabilities."
+							},
+							"cash_flow_to_revenue_percent": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "Cash flow from operations over revenue, in percent."
+							},
+							"debt_repayment_capacity_years": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "Net financial debt over cash flow, in years."
+							},
+							"interest_coverage": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "EBIT over financial charges."
+							},
+							"working_capital_to_revenue_percent": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "Operating working capital requirement over revenue, in percent."
+							},
+							"working_capital_days": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "The same requirement, in days of revenue."
+							},
+							"inventory_turnover_days": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "Inventory over purchases, in days."
+							},
+							"customer_credit_days": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "Receivables over revenue, in days."
+							},
+							"supplier_credit_days": {
+								"type": [
+									"number",
+									"null"
+								],
+								"description": "Payables over purchases, in days."
+							}
+						}
+					}
+				}
+			},
+			"Financials": {
+				"type": "object",
+				"required": [
+					"siren",
+					"statements",
+					"coverage",
+					"attribution",
+					"served_by",
+					"terms",
+					"documentation",
+					"notice"
+				],
+				"properties": {
+					"siren": {
+						"type": "string",
+						"examples": [
+							"794598813"
+						]
+					},
+					"statements": {
+						"type": "array",
+						"description": "Most recent first, both perimeters mixed: `perimeter` tells them apart on every entry.",
+						"items": {
+							"$ref": "#/components/schemas/FinancialStatement"
+						}
+					},
+					"coverage": {
+						"type": "object",
+						"required": [
+							"statements",
+							"perimeters",
+							"confidential_filings_excluded"
+						],
+						"properties": {
+							"statements": {
+								"type": "integer",
+								"description": "How many entries are served, all perimeters together."
+							},
+							"perimeters": {
+								"type": "array",
+								"items": {
+									"type": "string",
+									"enum": [
+										"legal_entity",
+										"group"
+									]
+								},
+								"description": "Which perimeters the company has filed under."
+							},
+							"confidential_filings_excluded": {
+								"type": "boolean",
+								"description": "Always true: a confidential filing is absent, never served as zeros."
+							}
+						}
+					},
+					"attribution": {
+						"$ref": "#/components/schemas/Attribution"
+					},
+					"served_by": {
+						"$ref": "#/components/schemas/ServedBy"
+					},
+					"terms": {
+						"type": "string",
+						"format": "uri"
+					},
+					"documentation": {
+						"type": "string",
+						"format": "uri"
+					},
+					"notice": {
+						"type": "string",
+						"description": "What the data does and does not say."
 					}
 				}
 			},
