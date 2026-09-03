@@ -41,6 +41,14 @@ for thread in company["timeline"]:
 # liquidation, and a set-aside cancels the judgment it sets aside.
 print(company["insolvency"])
 
+# The accounts it filed, fiscal year by fiscal year. Quote the perimeter with
+# the figure: "legal_entity" is the company alone, "group" its consolidated
+# accounts, and the two never add up.
+accounts = get("/company/794598813/financials")
+for statement in accounts["statements"]:
+    revenue = statement["revenue"]
+    print(statement["fiscal_year"], statement["perimeter"], revenue and revenue["value"])
+
 # A watch over companies you already track: identifiers, never criteria.
 # Twenty at most, and each one spends a unit of the rate limit.
 watch = get("/changes?siren=794598813,552032534&since=2026-06-01")

@@ -1,9 +1,17 @@
 // auregistre - What changed in a French company, and when.
 // npm install auregistre, then: node examples/node.mjs
 
-import { timeline, changes, insolvencies, ApiError } from 'auregistre';
+import { timeline, financials, changes, insolvencies, ApiError } from 'auregistre';
 
 const doctolib = await timeline('794 598 813');
+
+// The accounts it filed, fiscal year by fiscal year. Always quote the perimeter
+// with the figure: company-only and consolidated accounts never add up.
+const accounts = await financials('794 598 813');
+for (const statement of accounts.statements) {
+	const revenue = statement.revenue ? `${statement.revenue.value} ${statement.revenue.currency}` : 'not published';
+	console.log(statement.fiscal_year, statement.perimeter, revenue, statement.ratios.ebitda_margin_percent);
+}
 
 // Doctolib. Its share capital has moved more than fifty times.
 for (const thread of doctolib.timeline) {

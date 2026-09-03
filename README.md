@@ -7,9 +7,10 @@ the share capital as of today. This API publishes the **history**: every value
 the French official gazette (BODACC) has recorded for a company, the date it
 was published, and a link to the announcement that published it.
 
-Three things follow from that one idea: the **timeline** of a company and the
-insolvency judgments against it, a **watch** over companies you already track,
-and the **count** of insolvency openings over time.
+Four things follow from that one idea: the **timeline** of a company and the
+insolvency judgments against it, its **filed accounts** fiscal year by fiscal
+year, a **watch** over companies you already track, and the **count** of
+insolvency openings over time.
 
 Nothing is inferred, scored or estimated.
 
@@ -29,9 +30,10 @@ npm install auregistre
 ```
 
 ```js
-import { timeline, changes, insolvencies, ApiError } from 'auregistre';
+import { timeline, financials, changes, insolvencies, ApiError } from 'auregistre';
 
 const doctolib = await timeline('794 598 813');
+const accounts = await financials('794 598 813');
 ```
 
 Zero dependencies, ESM, Node 18 or newer. The client is a thin layer: it builds
@@ -43,6 +45,7 @@ stops you from calling the API with `curl`.
 | Address | Answers |
 | --- | --- |
 | `GET /api/company/{siren}/timeline` | Every recorded change for one company, and its insolvency judgments |
+| `GET /api/company/{siren}/financials` | The accounts it filed, fiscal year by fiscal year: revenue, margins, net income, thirteen INPI ratios |
 | `GET /api/changes?siren={a,b,c}&since={date}` | What the gazette published on companies you already track |
 | `GET /api/insolvencies` | Insolvency openings in France, twelve months against the twelve before |
 | `GET /api/insolvencies/department/{code}` | The same barometer, for one department |
@@ -110,8 +113,14 @@ reader draw a wrong conclusion in silence.
   networks these are around 40% of what a naive search on the identifier
   returns, and they describe a different company.
 
-Three more belong to the addresses that came after the timeline.
+Four more belong to the addresses that came after the timeline.
 
+- **Company-only and consolidated accounts never add up.** Every entry of the
+  financials carries a `perimeter`: `legal_entity` is the one company under
+  this SIREN, `group` the consolidated accounts of its group. A holding files a
+  revenue of zero beside a group revenue in the billions, and a figure quoted
+  without its perimeter is a figure quoted wrong. Filings kept confidential are
+  not listed, so a missing fiscal year is not a fiscal year at zero.
 - **`insolvency` is served ready-made, and must not be recomputed.** Taking the
   most severe entry of `proceedings` would mark as liquidated a company a court
   put back on its feet: a closure cancels a liquidation, a set-aside cancels the

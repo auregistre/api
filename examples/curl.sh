@@ -11,6 +11,10 @@ curl -s 'https://auregistre.fr/api/company/794598813/timeline' | jq '.timeline[]
 # cancels a liquidation, and a set-aside cancels the judgment it sets aside.
 curl -s 'https://auregistre.fr/api/company/981809627/timeline' | jq '{insolvency, proceedings: .proceedings[0]}'
 
+# The accounts it filed, fiscal year by fiscal year. .perimeter says whether a
+# line is the company alone (legal_entity) or its group (group): never add them.
+curl -s 'https://auregistre.fr/api/company/794598813/financials' | jq '.statements[] | {fiscal_year, perimeter, revenue, net_income}'
+
 # A watch over companies you already track. Twenty at most, thirty days by default.
 curl -s 'https://auregistre.fr/api/changes?siren=794598813,552032534&since=2026-06-01' | jq '.companies[] | {legal_name, seen: (.changes | length), complete}'
 
